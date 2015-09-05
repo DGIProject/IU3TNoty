@@ -1,13 +1,22 @@
 <?php
-include("simple_html_dom.php");
+include 'bdd_connect.php';
+include 'simple_html_dom.php';
 
 //Remove Warnings
 error_reporting(E_ERROR | E_PARSE);
 date_default_timezone_set('Europe/Paris');
 echo date("d/m/y G:i:s");
 
-// Main vars
-$urls = [];
+function gUrls() {
+    global $bdd;
+    
+    $req = $bdd->prepare('SELECT iu3tnoty_urls.id AS id, iu3tnoty_urls.name AS name, iu3tnoty_urls.url AS url, iu3tnoty_properties.semestre AS semestre, iu3tnoty_properties.groupTD AS groupTD, iu3tnoty_properties.groupTP AS groupTP, iu3tnoty_properties.tonight AS tonight, iu3tnoty_properties.beforeClass AS beforeClass FROM iu3tnoty_urls, iu3tnoty_properties WHERE iu3tnoty_urls.userId = ? AND iu3tnoty_properties.urlId = iu3tnoty_urls.id');
+    $req->execute(array($_SESSION['userId']));
+    
+    return $req->fetchAll();
+}
+
+$urls = gUrls();
 
 $beginTime = mktime(20, 0, 0, date('m'), date("d") , date("Y"));
 $endTime = mktime(21, 0, 0, date('m'), date("d") , date("Y"));
@@ -19,14 +28,29 @@ if(time() > $beginTime && time() < $endTime) {
         
         $message = 'Votre emploi du temps pour demain :' . "\r\n";
         
-        foreach ($classes as $class) {
-            if($class['group'] != 'other group')
-                $message .=  'Un ' . str_replace("\r\n", "", $class['typeClass']) . ' est prévu à ' . $class['time'] . ' en ' . $class['group'] . ' à la salle "' . $class['room'] . '". Le professeur sera ' . $class['teacher'] . ' et le module enseigné est ' . str_replace("\r\n", '', str_replace(' ', '', $class['module'])) . '.' . "\r\n";
+        $i = 0;
+        
+        foreach($urls as $url) {
+            if($url['tonight'] == 1) {
+                sendMessage($url['url'], $message);
+                
+                $i++;
+            }
         }
         
-        echo $message;
+        foreach ($classes as $class) {
+            $message .=  'Un ' . str_replace("\r\n", "", $class['typeClass']) . ' est prévu à ' . $class['time'] . ' en ' . (($class['groupTD'] == 'NONE') ? 'classe entière' : 'groupe') . ' à la salle "' . $class['room'] . '". Le professeur sera ' . $class['teacher'] . ' et le module enseigné est ' . str_replace("\r\n", '', str_replace(' ', '', $class['module'])) . '.' . "\r\n";
+            
+            foreach($urls as $url) {
+                if($url['semestre'] == $class['semestre'] && ($url['groupTD'] == $class['groupTD'] || $url['groupTD'] == 'DONE') && ($url['groupTP'] == $class['groupTP'] || $url['groupTP'] == 'NONE') && $url['tonight'] == 1) {
+                    sendMessage($url['url'], $message);
+                    
+                    $i++;
+                }
+            }
+        }
         
-        sendMessages($message);
+        echo $i . ' messages sent';
         
         $myfile = fopen(dirname(__FILE__) . "/alreadyDone.file", "w") or die("Unable to open file!");
         fwrite($myfile, 'done=true');
@@ -44,20 +68,28 @@ else {
     $contentHTML = getTimeTable(0);
     $classes = parseHTML($contentHTML);
     
+    $i = 0;
+    
     foreach ($classes as $class) {
-        $message =  'Un ' . str_replace("\r\n", "", $class['typeClass']) . ' est prévu à ' . $class['time'] . ' en ' . $class['group'] . ' à la salle "' . $class['room'] . '". Le professeur sera ' . $class['teacher'] . ' et le module enseigné est ' . str_replace(' ', '', $class['module']) . '.';
+        $message =  'Un ' . str_replace("\r\n", "", $class['typeClass']) . ' est prévu à ' . $class['time'] . ' en ' . (($class['groupTD'] == 'NONE') ? 'classe entière' : 'groupe') . ' à la salle "' . $class['room'] . '". Le professeur sera ' . $class['teacher'] . ' et le module enseigné est ' . str_replace(' ', '', $class['module']) . '.';
         
-        echo ' - ' . $class['remainingTime'] . ' - ' . $message . '<br>';
+        echo ' - ' . $class['remainingTime'] . ' - ' . $class['semestre'] . ' - ' . $class['groupTD'] . ' - ' . $class['groupTP'] . ' - ' . $message . '<br>';
         
-        if($class['remainingTime'] < 7 && $class['remainingTime'] > 2 && $class['remainingTime'] != 'DONE' && $class['group'] != 'other group') {
-            sendMessages($message);
+        if($class['remainingTime'] < 7 && $class['remainingTime'] > 2 && $class['remainingTime'] != 'DONE') {
+            foreach($urls as $url) {
+                if($url['semestre'] == $class['semestre'] && ($url['groupTD'] == $class['groupTD'] || $url['groupTD'] == 'DONE') && ($url['groupTP'] == $class['groupTP'] || $url['groupTP'] == 'NONE') && $url['beforeClass'] == 1) {
+                    sendMessage($url['url'], $message);
+                    
+                    $i++;
+                }
+            }
         }
     }
+    
+    echo $i . ' messages sent';
 }
 
 function parseHTML($html) {
-    $tabTimes[] = '16:00';
-    
     foreach(array_slice($html->find('div.edt3'), 0, 22) as $div) {
         $tabTimes[] = (sizeof(explode(':', $div->plaintext)) > 1) ? $div->plaintext : ($div->plaintext . ':00');
     }
@@ -103,39 +135,32 @@ function parseHTML($html) {
         //GROUP
         $parseGroup = explode('-', $group);
         
-        if(substr($parseGroup[0], 0, 2) == 'S1') {
-            if(sizeof($parseGroup) < 2) {
-                $group = 'classe entière';
-            }
-            else {
-                if($parseGroup[1] == '1' || $parseGroup[1] == '1B') {
-                    $group = 'groupe';
-                }
-                else {
-                    $group = 'other group';
-                }
-            }
+        $semestre = substr($parseGroup[0], 0, 2);
+        
+        $groupTD = 'NONE';
+        $groupTP = 'NONE';
+        
+        if(strlen($parseGroup[1]) > 0) {
+            $groupTD = substr($parseGroup[1], 0, 1);
             
-            $tabClasses[] = ['typeClass' => $typeClass, 'time' => $time, 'remainingTime' => $remainingTimeText, 'group' => $group, 'room' => $room, 'teacher' => $teacher, 'module' => $module];
+            if(strlen($parseGroup[1]) > 1) {
+                $groupTP = substr($parseGroup[1], 1, 2);
+            }
         }
-        else {
-            //echo 'not good class';
-        }
+        
+        $tabClasses[] = ['typeClass' => $typeClass, 'time' => $time, 'remainingTime' => $remainingTimeText, 'semestre' => $semestre, 'groupTD' => $groupTD, 'groupTP' => $groupTP, 'room' => $room, 'teacher' => $teacher, 'module' => $module];
     }
     
     return $tabClasses;
 }
 
-function sendMessages($messageText) {
-    global $urls;
+function sendMessages($url, $messageText) {
+    echo $url . '&msg=' . rawurlencode($messageText);
     
-    foreach($urls as $url) {
-        echo $url . '&msg=' . rawurlencode($messageText);
-        $ch = curl_init($url . '&msg=' . rawurlencode($messageText));
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_BINARYTRANSFER, true);
-        $output = curl_exec($ch);
-    }
+    $ch = curl_init($url . '&msg=' . rawurlencode($messageText));
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_BINARYTRANSFER, true);
+    $output = curl_exec($ch);
 }
 
 function getTimeTable($daysToLoad = 0)
