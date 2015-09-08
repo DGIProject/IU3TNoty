@@ -6,12 +6,13 @@ include 'simple_html_dom.php';
 error_reporting(E_ERROR | E_PARSE);
 date_default_timezone_set('Europe/Paris');
 echo date("d/m/y G:i:s");
+echo time();
 
 function gUrls() {
     global $bdd;
     
-    $req = $bdd->prepare('SELECT iu3tnoty_urls.id AS id, iu3tnoty_urls.name AS name, iu3tnoty_urls.url AS url, iu3tnoty_properties.semestre AS semestre, iu3tnoty_properties.groupTD AS groupTD, iu3tnoty_properties.groupTP AS groupTP, iu3tnoty_properties.tonight AS tonight, iu3tnoty_properties.beforeClass AS beforeClass FROM iu3tnoty_urls, iu3tnoty_properties WHERE iu3tnoty_urls.userId = ? AND iu3tnoty_properties.urlId = iu3tnoty_urls.id');
-    $req->execute(array($_SESSION['userId']));
+    $req = $bdd->prepare('SELECT iu3tnoty_urls.id AS id, iu3tnoty_urls.name AS name, iu3tnoty_urls.url AS url, iu3tnoty_properties.semestre AS semestre, iu3tnoty_properties.groupTD AS groupTD, iu3tnoty_properties.groupTP AS groupTP, iu3tnoty_properties.tonight AS tonight, iu3tnoty_properties.beforeClass AS beforeClass FROM iu3tnoty_urls, iu3tnoty_properties WHERE iu3tnoty_properties.urlId = iu3tnoty_urls.id');
+    $req->execute();
     
     return $req->fetchAll();
 }
@@ -39,10 +40,11 @@ if(time() > $beginTime && time() < $endTime) {
         }
         
         foreach ($classes as $class) {
-            $message .=  'Un ' . str_replace("\r\n", "", $class['typeClass']) . ' est prévu à ' . $class['time'] . ' en ' . (($class['groupTD'] == 'NONE') ? 'classe entière' : 'groupe') . ' à la salle "' . $class['room'] . '". Le professeur sera ' . $class['teacher'] . ' et le module enseigné est ' . str_replace("\r\n", '', str_replace(' ', '', $class['module'])) . '.' . "\r\n";
+            $message =  'Un ' . str_replace("\r\n", "", $class['typeClass']) . ' est prévu à ' . $class['time'] . ' en ' . (($class['groupTD'] == 'NONE') ? 'classe entière' : 'groupe') . ' à la salle "' . $class['room'] . '". Le professeur sera ' . $class['teacher'] . ' et le module enseigné est ' . str_replace("\r\n", '', str_replace(' ', '', $class['module'])) . '.' . "\r\n";
             
             foreach($urls as $url) {
-                if($url['semestre'] == $class['semestre'] && ($url['groupTD'] == $class['groupTD'] || $url['groupTD'] == 'DONE') && ($url['groupTP'] == $class['groupTP'] || $url['groupTP'] == 'NONE') && $url['tonight'] == 1) {
+                echo ' - ' . $url['semestre'] . ' - ' . $class['semestre'] . ' - ' . $url['groupTD'] . ' - ' . $class['groupTD'] . ' - ' . $url['groupTP'] . ' - ' . $class['groupTP'] . ' - ' . $message . '<br>';
+                if($url['semestre'] == $class['semestre'] && ($url['groupTD'] == $class['groupTD'] || $class['groupTD'] == 'NONE') && ($url['groupTP'] == $class['groupTP'] || $class['groupTP'] == 'NONE') && $url['tonight'] == 1) {
                     sendMessage($url['url'], $message);
                     
                     $i++;
@@ -75,9 +77,9 @@ else {
         
         echo ' - ' . $class['remainingTime'] . ' - ' . $class['semestre'] . ' - ' . $class['groupTD'] . ' - ' . $class['groupTP'] . ' - ' . $message . '<br>';
         
-        if($class['remainingTime'] < 7 && $class['remainingTime'] > 2 && $class['remainingTime'] != 'DONE') {
+        if($class['remainingTime'] < 500 && $class['remainingTime'] > 120 && $class['remainingTime'] != 'DONE') {
             foreach($urls as $url) {
-                if($url['semestre'] == $class['semestre'] && ($url['groupTD'] == $class['groupTD'] || $url['groupTD'] == 'DONE') && ($url['groupTP'] == $class['groupTP'] || $url['groupTP'] == 'NONE') && $url['beforeClass'] == 1) {
+                if($url['semestre'] == $class['semestre'] && ($url['groupTD'] == $class['groupTD'] || $class['groupTD'] == 'NONE') && ($url['groupTP'] == $class['groupTP'] || $class['groupTP'] == 'NONE') && $url['beforeClass'] == 1) {
                     sendMessage($url['url'], $message);
                     
                     $i++;
@@ -109,8 +111,8 @@ function parseHTML($html) {
         }
         
         $explodedTimeCours = explode(':', $time);
-        $timeClass = mktime($explodedTimeCours[0], $explodedTimeCours[1],0, date('m'), date("d") , date("Y"));
-        $remainingTime = getdate($timeClass - time())['minutes'];
+        $timeClass = mktime($explodedTimeCours[0], $explodedTimeCours[1], 0, date('m'), date("d") , date("Y"));
+        $remainingTime = $timeClass - time();
         
         if (($timeClass - time()) > 0)
         {
@@ -154,7 +156,7 @@ function parseHTML($html) {
     return $tabClasses;
 }
 
-function sendMessages($url, $messageText) {
+function sendMessage($url, $messageText) {
     echo $url . '&msg=' . rawurlencode($messageText);
     
     $ch = curl_init($url . '&msg=' . rawurlencode($messageText));
