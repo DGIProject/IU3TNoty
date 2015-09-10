@@ -73,13 +73,13 @@ else {
     $i = 0;
     
     foreach ($classes as $class) {
-        $message =  'Un ' . str_replace("\r\n", "", $class['typeClass']) . ' est prévu à ' . $class['time'] . ' en ' . (($class['groupTD'] == 'NONE') ? 'classe entière' : 'groupe') . ' à la salle "' . $class['room'] . '". Le professeur sera ' . $class['teacher'] . ' et le module enseigné est ' . str_replace(' ', '', $class['module']) . '.';
+        if($class['remainingTime'] != 'DONE') {
+            $message =  'Prochain ' . str_replace("\r\n", "", $class['typeClass']) . ' dans ' . ($class['remainingTime'] / 60) . 'min en ' . $class['room'] . ' avec M./Mme. ' . $class['teacher'] . ', module enseigné sera ' . str_replace(' ', '', $class['module']) . '.';
         
-        echo ' - ' . $class['remainingTime'] . ' - ' . $class['semestre'] . ' - ' . $class['groupTD'] . ' - ' . $class['groupTP'] . ' - ' . $message . '<br>';
-        
-        if($class['remainingTime'] < 500 && $class['remainingTime'] > 120 && $class['remainingTime'] != 'DONE') {
+            echo ' - ' . $class['remainingTime'] . ' - ' . $class['semestre'] . ' - ' . $class['groupTD'] . ' - ' . $class['groupTP'] . ' - ' . $message . '<br>';
+            
             foreach($urls as $url) {
-                if($url['semestre'] == $class['semestre'] && ($url['groupTD'] == $class['groupTD'] || $class['groupTD'] == 'NONE') && ($url['groupTP'] == $class['groupTP'] || $class['groupTP'] == 'NONE') && $url['beforeClass'] == 1) {
+                if($class['remainingTime'] < ($url['beclassClassTime'] + 60) && $class['remainingTime'] > ($url['beforeClassTime'] - 60) $url['semestre'] == $class['semestre'] && ($url['groupTD'] == $class['groupTD'] || $class['groupTD'] == 'NONE') && ($url['groupTP'] == $class['groupTP'] || $class['groupTP'] == 'NONE') && $url['beforeClass'] == 1) {
                     sendMessage($url['url'], $message);
                     
                     $i++;
