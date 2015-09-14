@@ -113,7 +113,7 @@ function parseHTML($html) {
         $leftPixel = intval(str_replace('px' , '', explode(':', explode(';', $div->style)[4])[1]));
         
         //TIME
-        for ($i = 0; $i < sizeof($tabBarTimes); $i++)
+        for ($i = 0; $i < count($tabBarTimes); $i++)
         {
             if ($tabBarTimes[$i] == $leftPixel)
                 $time = $tabTimes[$i];
