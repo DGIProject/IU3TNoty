@@ -5,7 +5,7 @@ include 'simple_html_dom.php';
 //Remove Warnings
 error_reporting(E_ERROR | E_PARSE);
 date_default_timezone_set('Europe/Paris');
-echo '<h1>IU3TNoty</h1>It\'s now : ' . date("d/m/y G:i:s") . '.<hr>';
+echo '<h1>IU3TNoty - V1.0</h1>It\'s now : ' . date("d/m/y G:i:s") . '.<hr>';
 
 $separator = ' - ';
 
@@ -36,25 +36,30 @@ foreach($urls as $url) {
 
         echo $url['tonightTime'] . ' (' . $dateBeginTime['hours'] . ':' . (($dateBeginTime['minutes'] < 10) ? '0' : '') . $dateBeginTime['minutes'] . $separator . $dateEndTime['hours'] . ':' . (($dateBeginTime['minutes'] < 10) ? '0' : '') . $dateEndTime['minutes'] . ')';
 
-        if(time() > $beginTime && time() < $endTime && alreadyDone($url['id'], 'TONIGHT') < 1) {
-            $message = 'Votre emploi du temps pour demain :' . "\r\n";
+        if(time() > $beginTime && time() < $endTime) {
+            if(alreadyDone($url['id'], 'TONIGHT') < 1) {
+                $message = 'Votre emploi du temps pour demain :' . "\r\n";
 
-            foreach ($classesTomorrow as $class) {
-                if($url['semestre'] == $class['semestre'] && ($url['groupTD'] == $class['groupTD'] || $class['groupTD'] == 'NONE') && ($url['groupTP'] == $class['groupTP'] || $class['groupTP'] == 'NONE') && $url['tonight'] == 1) {
-                    $newMessage = 'Un ' . str_replace("\r\n", "", $class['typeClass']) . ' est prévu à ' . $class['time'] . ' en ' . (($class['groupTD'] == 'NONE') ? 'classe entière' : 'groupe') . ' à la salle "' . $class['room'] . '". Le professeur sera ' . $class['teacher'] . ' et le module enseigné est ' . str_replace("\r\n", '', str_replace(' ', '', $class['module'])) . '.' . "\r\n";
-                    echo '<br> - ' . $class['semestre'] . ' - ' . $class['groupTD'] . ' - ' . $class['groupTP'] . ' - ' . $newMessage;
+                foreach ($classesTomorrow as $class) {
+                    if($url['semestre'] == $class['semestre'] && ($url['groupTD'] == $class['groupTD'] || $class['groupTD'] == 'NONE') && ($url['groupTP'] == $class['groupTP'] || $class['groupTP'] == 'NONE') && $url['tonight'] == 1) {
+                        $newMessage = 'Un ' . str_replace("\r\n", "", $class['typeClass']) . ' est prévu à ' . $class['time'] . ' en ' . (($class['groupTD'] == 'NONE') ? 'classe entière' : 'groupe') . ' à la salle "' . $class['room'] . '". Le professeur sera ' . $class['teacher'] . ' et le module enseigné est ' . str_replace("\r\n", '', str_replace(' ', '', $class['module'])) . '.' . "\r\n";
+                        echo '<br> - ' . $class['semestre'] . ' - ' . $class['groupTD'] . ' - ' . $class['groupTP'] . ' - ' . $newMessage;
 
-                    $message .=  $newMessage;
+                        $message .=  $newMessage;
+                    }
                 }
+
+                sendMessage($url['url'], $message);
+                sAlreadyDone($url['id'], 'TONIGHT');
+
+                $iTonight++;
             }
-
-            sendMessage($url['url'], $message);
-            sAlreadyDone($url['id'], 'TONIGHT');
-
-            $iTonight++;
+            else {
+                echo $separator . 'already sent';
+            }
         }
         else {
-            echo $separator . 'alreadySent';
+            echo $separator . ' not good time';
         }
 
         echo '</li>';
@@ -71,7 +76,7 @@ $countClassToday = 0;
 
 foreach ($classesToday as $class) {
     if($class['remainingTime'] != 'DONE') {
-        $message =  'Prochain ' . str_replace("\r\n", "", $class['typeClass']) . ' dans ' . ($class['remainingTime'] / 60) . 'min en ' . $class['room'] . ' avec M./Mme. ' . $class['teacher'] . ', module enseigné sera ' . str_replace(' ', '', $class['module']) . '.';
+        $message =  'Prochain ' . str_replace("\r\n", "", $class['typeClass']) . ' dans ' . ceil($class['remainingTime'] / 60) . 'min en ' . $class['room'] . ' avec M./Mme. ' . $class['teacher'] . ', module enseigné sera ' . str_replace(' ', '', $class['module']) . '.';
 
         echo '<li>' . $class['remainingTime'] . $separator . $class['semestre'] . $separator . $class['groupTD'] . $separator . $class['groupTP'] . $separator . $message;
 
@@ -101,12 +106,34 @@ if($countClassToday < 1) {
 echo $iBeforeClass . ' messages sent';
 
 function parseHTML($html) {
+    $i = 0;
+    $tabTimes = [];
+
     foreach(array_slice($html->find('div.edt3'), 0, 22) as $div) {
-        $tabTimes[] = (sizeof(explode(':', $div->plaintext)) > 1) ? $div->plaintext : ($div->plaintext . ':00');
+        $splitHour = explode(':', $div->plaintext);
+
+        if($i > 1) {
+            $tabTimes[] = ((count($splitHour) > 1) ? ($splitHour[0] . ':15') : (intval($splitHour[0]) - 1) . ':45');
+        }
+
+        $tabTimes[] = (count($splitHour) > 1) ? $div->plaintext : ($div->plaintext . ':00');
+
+        $i++;
     }
 
+    $i = 0;
+    $tabBarTimes = [];
+
     foreach(array_slice($html->find('div.edthoraire'), 0, 22) as $div) {
-        $tabBarTimes[] = intval(str_replace('px' , '', explode(':', explode(';', $div->style)[2])[1]));
+        $topPx = intval(str_replace('px' , '', explode(':', explode(';', $div->style)[2])[1]));
+
+        if($i > 1) {
+            $tabBarTimes[] = $topPx - (($topPx - $tabBarTimes[count($tabBarTimes) - 1]) / 2);
+        }
+
+        $tabBarTimes[] = $topPx;
+
+        $i++;
     }
     
     foreach($html->find('div.edt') as $div) {
@@ -115,7 +142,7 @@ function parseHTML($html) {
         //TIME
         for ($i = 0; $i < count($tabBarTimes); $i++)
         {
-            if ($tabBarTimes[$i] == $leftPixel)
+            if ($tabBarTimes[$i] >= ($leftPixel - 5) && $tabBarTimes[$i] <= ($leftPixel + 5))
                 $time = $tabTimes[$i];
         }
         
