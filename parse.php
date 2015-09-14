@@ -42,7 +42,7 @@ foreach($urls as $url) {
 
                 foreach ($classesTomorrow as $class) {
                     if($url['semestre'] == $class['semestre'] && ($url['groupTD'] == $class['groupTD'] || $class['groupTD'] == 'NONE') && ($url['groupTP'] == $class['groupTP'] || $class['groupTP'] == 'NONE') && $url['tonight'] == 1) {
-                        $newMessage = 'Un ' . str_replace("\r\n", "", $class['typeClass']) . ' est prévu à ' . $class['time'] . ' en ' . (($class['groupTD'] == 'NONE') ? 'classe entière' : 'groupe') . ' à la salle "' . $class['room'] . '". Le professeur sera ' . $class['teacher'] . ' et le module enseigné est ' . str_replace("\r\n", '', str_replace(' ', '', $class['module'])) . '.' . "\r\n";
+                        $newMessage = 'Un ' . str_replace("\r\n", "", $class['typeClass']) . ' de ' . gTime($class['timeClass']) . ' est prévu à ' . $class['timeBegin'] . ' en ' . (($class['groupTD'] == 'NONE') ? 'classe entière' : 'groupe') . ' à la salle ' . $class['room'] . '. Le professeur sera ' . $class['teacher'] . ' et le module enseigné est ' . str_replace("\r\n", '', str_replace(' ', '', $class['module'])) . '.' . "\r\n";
                         echo '<br> - ' . $class['semestre'] . ' - ' . $class['groupTD'] . ' - ' . $class['groupTP'] . ' - ' . $newMessage;
 
                         $message .=  $newMessage;
@@ -76,7 +76,7 @@ $countClassToday = 0;
 
 foreach ($classesToday as $class) {
     if($class['remainingTime'] != 'DONE') {
-        $message =  'Prochain ' . str_replace("\r\n", "", $class['typeClass']) . ' dans ' . ceil($class['remainingTime'] / 60) . 'min en ' . $class['room'] . ' avec M./Mme. ' . $class['teacher'] . ', module enseigné sera ' . str_replace(' ', '', $class['module']) . '.';
+        $message =  'Prochain ' . str_replace("\r\n", "", $class['typeClass']) . ' de ' . gTime($class['timeClass']) . ' dans ' . ceil($class['remainingTime'] / 60) . 'min en ' . $class['room'] . ' avec M./Mme. ' . $class['teacher'] . ', module enseigné sera ' . str_replace(' ', '', $class['module']) . '.';
 
         echo '<li>' . $class['remainingTime'] . $separator . $class['semestre'] . $separator . $class['groupTD'] . $separator . $class['groupTP'] . $separator . $message;
 
@@ -106,6 +106,8 @@ if($countClassToday < 1) {
 echo $iBeforeClass . ' messages sent';
 
 function parseHTML($html) {
+    $tabClasses = [];
+
     $i = 0;
     $tabTimes = [];
 
@@ -138,19 +140,31 @@ function parseHTML($html) {
     
     foreach($html->find('div.edt') as $div) {
         $leftPixel = intval(str_replace('px' , '', explode(':', explode(';', $div->style)[4])[1]));
+        $leftWidthPixel = $leftPixel + intval(str_replace('px' , '', explode(':', explode(';', $div->style)[6])[1]));
+
+        $timeBegin = 0;
+        $timeEnd = 0;
         
         //TIME
         for ($i = 0; $i < count($tabBarTimes); $i++)
         {
             if ($tabBarTimes[$i] >= ($leftPixel - 5) && $tabBarTimes[$i] <= ($leftPixel + 5))
-                $time = $tabTimes[$i];
+                $timeBegin = $tabTimes[$i];
+
+            if ($tabBarTimes[$i] >= ($leftWidthPixel - 5) && $tabBarTimes[$i] <= ($leftWidthPixel + 5))
+                $timeEnd = $tabTimes[$i];
         }
         
-        $explodedTimeCours = explode(':', $time);
-        $timeClass = mktime($explodedTimeCours[0], $explodedTimeCours[1], 0, date('m'), date("d") , date("Y"));
-        $remainingTime = $timeClass - time();
+        $splitTimeBegin = explode(':', $timeBegin);
+        $timeBeginClass = mktime($splitTimeBegin[0], $splitTimeBegin[1], 0, date('m'), date('d') , date('Y'));
+
+        $splitTimeEnd = explode(':', $timeEnd);
+        $timeEndClass = mktime($splitTimeEnd[0], $splitTimeEnd[1], 0, date('m'), date('d'), date('Y'));
+
+        $remainingTime = $timeBeginClass - time();
+        $timeClass = $timeEndClass - $timeBeginClass;
         
-        if (($timeClass - time()) > 0)
+        if ($remainingTime > 0)
         {
             $remainingTimeText = $remainingTime;
         }
@@ -186,7 +200,7 @@ function parseHTML($html) {
             }
         }
         
-        $tabClasses[] = ['typeClass' => $typeClass, 'time' => $time, 'remainingTime' => $remainingTimeText, 'semestre' => $semestre, 'groupTD' => $groupTD, 'groupTP' => $groupTP, 'room' => $room, 'teacher' => $teacher, 'module' => $module];
+        $tabClasses[] = ['typeClass' => $typeClass, 'timeBegin' => $timeBegin, 'timeClass' => ($timeClass / 60), 'remainingTime' => $remainingTimeText, 'semestre' => $semestre, 'groupTD' => $groupTD, 'groupTP' => $groupTP, 'room' => $room, 'teacher' => $teacher, 'module' => $module];
     }
     
     return $tabClasses;
@@ -234,6 +248,10 @@ function getTimeTable($daysToLoad = 0)
     
     return str_get_html($html);
     }
+}
+
+function gTime($minutes) {
+    return ((floor($minutes / 60) > 0) ? ((floor($minutes / 60) . ' heure' . ((floor($minutes / 60) > 1) ? 's' : ''))) : '') . ((($minutes % 60) > 0) ?  (' ' . ($minutes % 60) . ' minutes ') : '');
 }
 
 function gUrls() {
