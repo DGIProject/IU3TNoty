@@ -8,11 +8,15 @@ date_default_timezone_set('Europe/Paris');
 echo '<h1>IU3TNoty - V1.0</h1>It\'s now : ' . date("d/m/y G:i:s") . '.<hr>';
 
 $separator = ' - ';
+$months = ['Janvier' => '01', 'Février' => '02', 'Septembre' => '09', 'Octobre' => '10', 'Novembre' => '11', 'Décembre' => '12'];
 
 $urls = gUrls();
 
-$classesTomorrow = parseHTML(getTimeTable(1));
-$classesToday = parseHTML(getTimeTable(0));
+saveTimetable(0);
+saveTimetable(1);
+
+$classesTomorrow = gTimetable(1);
+$classesToday = gTimetable(0);
 
 $iTonight = 0;
 $iBeforeClass = 0;
@@ -34,28 +38,40 @@ foreach($urls as $url) {
         $dateBeginTime = getdate($beginTime);
         $dateEndTime = getdate($endTime);
 
-        echo $url['tonightTime'] . ' (' . $dateBeginTime['hours'] . ':' . (($dateBeginTime['minutes'] < 10) ? '0' : '') . $dateBeginTime['minutes'] . $separator . $dateEndTime['hours'] . ':' . (($dateBeginTime['minutes'] < 10) ? '0' : '') . $dateEndTime['minutes'] . ')';
+        $dateBeginClass = gTimeLeftBeginClass(0, $url);
+
+        echo $url['tonightTime'] . ' (' . $dateBeginTime['hours'] . ':' . (($dateBeginTime['minutes'] < 10) ? '0' : '') . $dateBeginTime['minutes'] . $separator . $dateEndTime['hours'] . ':' . (($dateBeginTime['minutes'] < 10) ? '0' : '') . $dateEndTime['minutes'] . ')' . $separator . $dateBeginClass;
+
+        if($dateBeginClass != 'NONE' && $dateBeginClass < ($url['beforeBeginTime'] + 60) && $dateBeginClass > ($url['beforeBeginTime'] - 60) && $url['beforeBegin'] == 1) {
+            sendMessage($url['url'], 'Salut Salut ! Il faut maintenant se lever car les cours commencent.');
+            sAlreadyDone($url['id'], $dateBeginTime, 'BEFORE_BEGIN');
+        }
 
         if(time() > $beginTime && time() < $endTime) {
-            if(alreadyDone($url['id'], 'TONIGHT') < 1) {
-                $message = 'Votre emploi du temps pour demain :' . "\r\n";
+            if(count($classesTomorrow) > 0)  {
+                if(alreadyDone($url['id'], $classesTomorrow[0]['id'], 'TONIGHT') < 1) {
+                    $message = 'Votre emploi du temps pour demain :' . "\r\n";
 
-                foreach ($classesTomorrow as $class) {
-                    if($url['semestre'] == $class['semestre'] && ($url['groupTD'] == $class['groupTD'] || $class['groupTD'] == 'NONE') && ($url['groupTP'] == $class['groupTP'] || $class['groupTP'] == 'NONE') && $url['tonight'] == 1) {
-                        $newMessage = 'Un ' . str_replace("\r\n", "", $class['typeClass']) . ' de ' . gTime($class['timeClass']) . ' est prévu à ' . $class['timeBegin'] . ' en ' . (($class['groupTD'] == 'NONE') ? 'classe entière' : 'groupe') . ' à la salle ' . $class['room'] . '. Le professeur sera ' . $class['teacher'] . ' et le module enseigné est ' . str_replace("\r\n", '', str_replace(' ', '', $class['module'])) . '.' . "\r\n";
-                        echo '<br> - ' . $class['semestre'] . ' - ' . $class['groupTD'] . ' - ' . $class['groupTP'] . ' - ' . $newMessage;
+                    foreach ($classesTomorrow as $class) {
+                        if($url['semestre'] == $class['semestre'] && ($url['groupTD'] == $class['groupTD'] || $class['groupTD'] == 'NONE') && ($url['groupTP'] == $class['groupTP'] || $class['groupTP'] == 'NONE') && $url['tonight'] == 1) {
+                            $newMessage = 'Un ' . str_replace("\r\n", "", $class['typeClass']) . ' de ' . gTime($class['timeClass']) . ' est prévu à ' . $class['timeBegin'] . ' en ' . (($class['groupTD'] == 'NONE') ? 'classe entière' : 'groupe') . ' à la salle ' . $class['room'] . '. Le professeur sera ' . $class['teacher'] . ' et le module enseigné est ' . str_replace("\r\n", '', str_replace(' ', '', $class['module'])) . '.' . "\r\n";
+                            echo '<br> - ' . $class['semestre'] . ' - ' . $class['groupTD'] . ' - ' . $class['groupTP'] . ' - ' . $newMessage;
 
-                        $message .=  $newMessage;
+                            $message .=  $newMessage;
+                        }
                     }
+
+                    sendMessage($url['url'], $message);
+                    sAlreadyDone($url['id'], $classesTomorrow[0]['id'], 'TONIGHT');
+
+                    $iTonight++;
                 }
-
-                sendMessage($url['url'], $message);
-                sAlreadyDone($url['id'], 'TONIGHT');
-
-                $iTonight++;
+                else {
+                    echo $separator . 'already sent';
+                }
             }
             else {
-                echo $separator . 'already sent';
+                echo $separator . 'no timetable tomorrow';
             }
         }
         else {
@@ -75,17 +91,23 @@ echo '<hr><h2>Before class messages</h2><ul>';
 $countClassToday = 0;
 
 foreach ($classesToday as $class) {
-    if($class['remainingTime'] != 'DONE') {
-        $message =  'Prochain ' . str_replace("\r\n", "", $class['typeClass']) . ' de ' . gTime($class['timeClass']) . ' dans ' . ceil($class['remainingTime'] / 60) . 'min en ' . $class['room'] . ' avec M./Mme. ' . $class['teacher'] . ', module enseigné sera ' . str_replace(' ', '', $class['module']) . '.';
+    $splitTimeBegin = explode(':', explode(' ', $class['dateClass'])[1]);
+    $timeBeginClass = mktime($splitTimeBegin[0], $splitTimeBegin[1], 0, date('m'), date('d') , date('Y'));
 
-        echo '<li>' . $class['remainingTime'] . $separator . $class['semestre'] . $separator . $class['groupTD'] . $separator . $class['groupTP'] . $separator . $message;
+    $remainingTime = $timeBeginClass - time();
+    $remainingTime = ($remainingTime > 0) ? $remainingTime : 'DONE';
+
+    if($remainingTime != 'DONE') {
+        $message =  'Prochain ' . str_replace("\r\n", "", $class['typeClass']) . ' de ' . $class['timeClass'] . ' dans ' . ceil($remainingTime / 60) . 'min en ' . $class['room'] . ' avec M./Mme. ' . $class['teacher'] . ', module enseigné sera ' . str_replace(' ', '', $class['moduleClass']) . '.';
+
+        echo '<li>' . $remainingTime . $separator . $class['semestre'] . $separator . $class['groupTD'] . $separator . $class['groupTP'] . $separator . $message;
 
         foreach($urls as $url) {
-            if(alreadyDone($url['id'], 'BEFORE_CLASS') < 1 && $class['remainingTime'] < ($url['beforeClassTime'] + 60) && $class['remainingTime'] > ($url['beforeClassTime'] - 60) && $url['semestre'] == $class['semestre'] && ($url['groupTD'] == $class['groupTD'] || $class['groupTD'] == 'NONE') && ($url['groupTP'] == $class['groupTP'] || $class['groupTP'] == 'NONE') && $url['beforeClass'] == 1) {
+            if(alreadyDone($url['id'], $class['id'], 'BEFORE_CLASS') < 1 && $remainingTime < ($url['beforeClassTime'] + 60) && $remainingTime > ($url['beforeClassTime'] - 60) && $url['semestre'] == $class['semestre'] && ($url['groupTD'] == $class['groupTD'] || $class['groupTD'] == 'NONE') && ($url['groupTP'] == $class['groupTP'] || $class['groupTP'] == 'NONE') && $url['beforeClass'] == 1) {
                 echo '<br>' . $url['name'];
 
                 sendMessage($url['url'], $message);
-                sAlreadyDone($url['id'], 'BEFORE_CLASS');
+                sAlreadyDone($url['id'], $class['id'], 'BEFORE_CLASS');
 
                 $iBeforeClass++;
             }
@@ -106,7 +128,26 @@ if($countClassToday < 1) {
 echo $iBeforeClass . ' messages sent';
 
 function parseHTML($html) {
-    $tabClasses = [];
+    global $months;
+
+    $tabDates = [];
+    $tabTopPxDates = [];
+    $tabFormation = [];
+
+    foreach($html->find('div.edtjour') as $div) {
+        $topPx = intval(str_replace('px' , '', explode(':', explode(';', $div->style)[2])[1]));
+        $leftPx = intval(str_replace('px' , '', explode(':', explode(';', $div->style)[3])[1]));
+
+        if($leftPx < 1) {
+            $splitInfo = explode(' ', $div->plaintext);
+
+            $date = substr($splitInfo[3], 0, 4) . '-' . $months[$splitInfo[2]] . '-' . $splitInfo[1];
+
+            $tabDates[] = $date;
+            $tabTopPxDates[] = $topPx;
+            $tabFormation[] = substr($splitInfo[3], 10);
+        }
+    }
 
     $i = 0;
     $tabTimes = [];
@@ -139,14 +180,27 @@ function parseHTML($html) {
     }
     
     foreach($html->find('div.edt') as $div) {
+        $topPx = intval(str_replace('px' , '', explode(':', explode(';', $div->style)[3])[1]));
+
         $leftPixel = intval(str_replace('px' , '', explode(':', explode(';', $div->style)[4])[1]));
         $leftWidthPixel = $leftPixel + intval(str_replace('px' , '', explode(':', explode(';', $div->style)[6])[1]));
 
+        //DATE
+        $dateClass = 'NONE';
+        $formation = 'NONE';
+
+        for($i = 0; $i < count($tabDates); $i++) {
+            if(($tabTopPxDates[$i] - 10) <= $topPx && ($tabTopPxDates[$i] + 300) >= $topPx) {
+                $formation = $tabFormation[$i];
+                $dateClass = $tabDates[$i];
+            }
+        }
+
+        //TIME
         $timeBegin = 0;
         $timeEnd = 0;
-        
-        //TIME
-        for ($i = 0; $i < count($tabBarTimes); $i++)
+
+        for ($i = 0; $i < count($tabTimes); $i++)
         {
             if ($tabBarTimes[$i] >= ($leftPixel - 5) && $tabBarTimes[$i] <= ($leftPixel + 5))
                 $timeBegin = $tabTimes[$i];
@@ -154,24 +208,15 @@ function parseHTML($html) {
             if ($tabBarTimes[$i] >= ($leftWidthPixel - 5) && $tabBarTimes[$i] <= ($leftWidthPixel + 5))
                 $timeEnd = $tabTimes[$i];
         }
-        
+
         $splitTimeBegin = explode(':', $timeBegin);
         $timeBeginClass = mktime($splitTimeBegin[0], $splitTimeBegin[1], 0, date('m'), date('d') , date('Y'));
 
         $splitTimeEnd = explode(':', $timeEnd);
         $timeEndClass = mktime($splitTimeEnd[0], $splitTimeEnd[1], 0, date('m'), date('d'), date('Y'));
 
-        $remainingTime = $timeBeginClass - time();
-        $timeClass = $timeEndClass - $timeBeginClass;
-        
-        if ($remainingTime > 0)
-        {
-            $remainingTimeText = $remainingTime;
-        }
-        else {
-            $remainingTimeText = 'DONE';
-        }
-        
+        $timeClass = gTime($timeEndClass - $timeBeginClass);
+
         //INFORMATIONS
         $child = $div->first_child();
         
@@ -199,11 +244,11 @@ function parseHTML($html) {
                 $groupTP = substr($parseGroup[1], 1, 2);
             }
         }
-        
-        $tabClasses[] = ['typeClass' => $typeClass, 'timeBegin' => $timeBegin, 'timeClass' => ($timeClass / 60), 'remainingTime' => $remainingTimeText, 'semestre' => $semestre, 'groupTD' => $groupTD, 'groupTP' => $groupTP, 'room' => $room, 'teacher' => $teacher, 'module' => $module];
+
+        $splitDate = explode('-', $dateClass);
+
+        echo addClassTimetable($formation, $typeClass, $module, $room, $teacher, $semestre, $groupTD, $groupTP, $timeClass, ($splitDate[0] . '-' . $splitDate[1] . '-' . $splitDate[2] . ' ' . $splitTimeBegin[0] . ':' . $splitTimeBegin[1] . ':00'));
     }
-    
-    return $tabClasses;
 }
 
 function sendMessage($url, $messageText) {
@@ -213,71 +258,124 @@ function sendMessage($url, $messageText) {
     $output = curl_exec($ch);
 }
 
-function getTimeTable($daysToLoad = 0)
+function saveTimetable($daysToLoad = 0)
 {
     if($daysToLoad == 0) {
-        return file_get_html('http://iutsa.unice.fr/gpushow2/?dept=RT&interactive&filiere=Journee');
+        parseHTML(file_get_html('http://iutsa.unice.fr/gpushow2/?dept=RT&interactive&filiere=Journee'));
     }
     else {
+        $nextDayURL = "http://iutsa.unice.fr/gpushow2/?dept=RT&interactive&date=plus&filiere=RT1,RT1M,RT2,LPRT-RSFS";
+        $html = '';
 
-    // Create the initial link you want.
-    $nextDayURL = "http://iutsa.unice.fr/gpushow2/?dept=RT&interactive&date=plus&filiere=RT1,RT1M,RT2,LPRT-RSFS";
+        unlink(dirname(__FILE__) . '/cookie.txt');
 
-    
-    unlink(dirname(__FILE__) . '/cookie.txt');
-    
-    for ($i = 0; $i<$daysToLoad ; $i++)
-    {
-        
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $nextDayURL);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        
-        curl_setopt($ch, CURLOPT_COOKIEJAR, dirname(__FILE__) . '/cookie.txt');
-        curl_setopt($ch, CURLOPT_COOKIEFILE, dirname(__FILE__) . '/cookie.txt');
-        
-        $html = curl_exec($ch);
-        curl_close($ch);
-                
-        if(!$html){
-            echo 'Faild to get the Day i+'. $i;
-        exit();
+        for ($i = 0; $i<$daysToLoad ; $i++)
+        {
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $nextDayURL);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+            curl_setopt($ch, CURLOPT_COOKIEJAR, dirname(__FILE__) . '/cookie.txt');
+            curl_setopt($ch, CURLOPT_COOKIEFILE, dirname(__FILE__) . '/cookie.txt');
+
+            $html = curl_exec($ch);
+            curl_close($ch);
+
+            if(!$html){
+                echo 'Faild to get the Day i+'. $i;
+                exit();
+            }
         }
 
-    }
-    
-    return str_get_html($html);
+        parseHTML(str_get_html($html));
     }
 }
 
-function gTime($minutes) {
-    return ((floor($minutes / 60) > 0) ? ((floor($minutes / 60) . ' heure' . ((floor($minutes / 60) > 1) ? 's' : ''))) : '') . ((($minutes % 60) > 0) ?  (' ' . ($minutes % 60) . ' minutes ') : '');
+function gTime($seconds) {
+    $minutes = $seconds / 60;
+
+    return ((floor($minutes / 60) > 0) ? (floor($minutes / 60)) : '00') . ':' . ((($minutes % 60) > 0) ?  ($minutes % 60) : '00');
 }
 
 function gUrls() {
     global $bdd;
 
-    $req = $bdd->prepare('SELECT iu3tnoty_urls.id AS id, iu3tnoty_urls.name AS name, iu3tnoty_urls.url AS url, iu3tnoty_properties.semestre AS semestre, iu3tnoty_properties.groupTD AS groupTD, iu3tnoty_properties.groupTP AS groupTP, iu3tnoty_properties.tonight AS tonight, iu3tnoty_properties.tonightTime AS tonightTime, iu3tnoty_properties.beforeClass AS beforeClass, iu3tnoty_properties.beforeClassTime AS beforeClassTime FROM iu3tnoty_urls, iu3tnoty_properties WHERE iu3tnoty_properties.urlId = iu3tnoty_urls.id');
+    $req = $bdd->prepare('SELECT iu3tnoty_urls.id AS id, iu3tnoty_urls.name AS name, iu3tnoty_urls.url AS url, iu3tnoty_properties.semestre AS semestre, iu3tnoty_properties.groupTD AS groupTD, iu3tnoty_properties.groupTP AS groupTP, iu3tnoty_properties.tonight AS tonight, iu3tnoty_properties.tonightTime AS tonightTime, iu3tnoty_properties.beforeBegin AS beforeBegin, iu3tnoty_properties.beforeBeginTime AS beforeBeginTime, iu3tnoty_properties.beforeClass AS beforeClass, iu3tnoty_properties.beforeClassTime AS beforeClassTime FROM iu3tnoty_urls, iu3tnoty_properties WHERE iu3tnoty_properties.urlId = iu3tnoty_urls.id');
     $req->execute();
 
     return $req->fetchAll();
 }
 
-function alreadyDone($urlId, $type) {
+function alreadyDone($urlId, $timetableId, $type) {
     global $bdd;
 
     $date = getdate(time());
 
-    $req = $bdd->prepare('SELECT COUNT(*) AS countUrl FROM iu3tnoty_done WHERE urlId = ? AND typeNoty = ? AND date > "' . $date['year'] . '-' . (($date['mon'] < 10) ? '0' : '') . $date['mon'] . '-' . (($date['mday'] < 10) ? '0' : '') . $date['mday'] . ' 00:00:00"');
-    $req->execute(array($urlId, $type));
+    $req = $bdd->prepare('SELECT COUNT(*) AS countUrl FROM iu3tnoty_done WHERE urlId = ? AND timetableId = ? AND typeNoty = ? AND date > "' . $date['year'] . '-' . (($date['mon'] < 10) ? '0' : '') . $date['mon'] . '-' . (($date['mday'] < 10) ? '0' : '') . $date['mday'] . ' 00:00:00"');
+    $req->execute(array($urlId, $timetableId, $type));
 
     return $req->fetch()['countUrl'];
 }
 
-function sAlreadyDone($urlId, $type) {
+function sAlreadyDone($urlId, $timetimeId, $type) {
     global $bdd;
 
-    $req = $bdd->prepare('INSERT INTO iu3tnoty_done(urlId, typeNoty) VALUES (? , ?)');
+    $req = $bdd->prepare('INSERT INTO iu3tnoty_done(urlId, timetableId, typeNoty) VALUES (?, ?, ?)');
 
-    return $req->execute(array($urlId, $type));
+    return $req->execute(array($urlId, $timetimeId, $type));
+}
+
+function addClassTimetable($formation, $typeClass, $module, $room, $teacher, $semestre, $groupTD, $groupTP, $timeClass, $dateClass) {
+    global $bdd;
+
+    $req = $bdd->prepare('SELECT COUNT(*) AS countClass FROM iu3tnoty_timetable WHERE room = ? AND semestre = ? AND groupTD = ? AND groupTP = ? AND dateClass = ?');
+    $req->execute(array($room, $semestre, $groupTD, $groupTP, $dateClass));
+
+    if($req->fetch()['countClass'] < 1) {
+        $req = $bdd->prepare('INSERT INTO iu3tnoty_timetable(formation, typeClass, moduleClass, room, teacher, semestre, groupTD, groupTP, timeClass, dateClass) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+
+        return $req->execute(array($formation, $typeClass, $module, $room, $teacher, $semestre, $groupTD, $groupTP, $timeClass, $dateClass));
+    }
+    else {
+        return false;
+    }
+}
+
+function gTimetable($moreDay) {
+    $date = getdate(time() + ($moreDay * 24 * 3600));
+    $finalDate = $date['year'] . '-' . (($date['mon'] < 10) ? '0' : '') . $date['mon'] . '-' . (($date['mday'] < 10) ? '0' : '') . $date['mday'] . ' ';
+
+    global $bdd;
+
+    $req = $bdd->prepare('SELECT * FROM iu3tnoty_timetable WHERE dateClass > ? AND dateClass < ?');
+    $req->execute(array(
+        $finalDate . '00:00:00',
+        $finalDate . '23:00:00'
+    ));
+
+    return $req->fetchAll();
+}
+
+function gTimeLeftBeginClass($moreDay, $url) {
+    $done = false;
+    $dateClass = 'NONE';
+
+    foreach(gTimetable($moreDay) as $class) {
+        if(!$done && $url['semestre'] == $class['semestre'] && ($url['groupTD'] == $class['groupTD'] || $class['groupTD'] == 'NONE') && ($url['groupTP'] == $class['groupTP'] || $class['groupTP'] == 'NONE')) {
+            $dateClass = $class['dateClass'];
+            $done = true;
+        }
+    }
+
+    if($dateClass != 'NONE') {
+        $dateClassBegin = explode('-', explode(' ', $dateClass)[0]);
+        $timeClassBegin = explode(':', explode(' ', $dateClass)[1]);
+
+        $timestampClass = mktime($timeClassBegin[0], $timeClassBegin[1], $timeClassBegin[2], $dateClassBegin[1], $dateClassBegin[2], $dateClassBegin[0]);
+
+        $dateClass = $timestampClass - time();
+        $dateClass = ($dateClass > 0) ? $dateClass : 'NONE';
+    }
+
+    return $dateClass;
 }
