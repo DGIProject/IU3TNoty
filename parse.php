@@ -12,11 +12,28 @@ $months = ['Janvier' => '01', 'Février' => '02', 'Septembre' => '09', 'Octobre'
 
 $urls = gUrls();
 
-saveTimetable(0);
-saveTimetable(1);
-
 $classesTomorrow = gTimetable(1);
 $classesToday = gTimetable(0);
+
+//Actualisation de l'emploi du temps
+echo '<h2>Lessons Actualize</h2><ul>';
+$done = false;
+$i = 0;
+
+while(!$done) {
+    $countClassTimeTable = saveTimetable($i);
+
+    if($countClassTimeTable <= 0) {
+        $done = true;
+    }
+    else {
+        echo '<li>Day ' . $i . ' : ' . $countClassTimeTable . ' lesson(s) </li>';
+    }
+
+    $i++;
+}
+
+echo '</ul><hr>';
 
 $iTonight = 0;
 $iBeforeClass = 0;
@@ -54,7 +71,7 @@ foreach($urls as $url) {
 
                     foreach ($classesTomorrow as $class) {
                         if($url['semestre'] == $class['semestre'] && ($url['groupTD'] == $class['groupTD'] || $class['groupTD'] == 'NONE') && ($url['groupTP'] == $class['groupTP'] || $class['groupTP'] == 'NONE') && $url['tonight'] == 1) {
-                            $newMessage = 'Un ' . str_replace("\r\n", "", $class['typeClass']) . ' de ' . gTime($class['timeClass']) . ' est prévu à ' . $class['timeBegin'] . ' en ' . (($class['groupTD'] == 'NONE') ? 'classe entière' : 'groupe') . ' à la salle ' . $class['room'] . '. Le professeur sera ' . $class['teacher'] . ' et le module enseigné est ' . str_replace("\r\n", '', str_replace(' ', '', $class['module'])) . '.' . "\r\n";
+                            $newMessage = 'Un ' . str_replace("\r\n", "", $class['typeClass']) . 'à ' . explode(' ', $class['dateClass'])[1] . ' de ' . $class['timeClass'] . ' est prévu à ' . $class['timeBegin'] . ' en ' . (($class['groupTD'] == 'NONE') ? 'classe entière' : 'groupe') . ' à la salle ' . $class['room'] . '. Le professeur sera ' . $class['teacher'] . ' et le module enseigné est ' . str_replace("\r\n", '', str_replace(' ', '', $class['moduleClass'])) . '.' . "\r\n";
                             echo '<br> - ' . $class['semestre'] . ' - ' . $class['groupTD'] . ' - ' . $class['groupTP'] . ' - ' . $newMessage;
 
                             $message .=  $newMessage;
@@ -133,6 +150,8 @@ function parseHTML($html) {
     $tabDates = [];
     $tabTopPxDates = [];
     $tabFormation = [];
+
+    $countClass = 0;
 
     foreach($html->find('div.edtjour') as $div) {
         $topPx = intval(str_replace('px' , '', explode(':', explode(';', $div->style)[2])[1]));
@@ -229,26 +248,38 @@ function parseHTML($html) {
         $group = $info[0];
         $typeClass = $info[1];
         
-        //GROUP
-        $parseGroup = explode('-', $group);
-        
-        $semestre = substr($parseGroup[0], 0, 2);
-        
+        //GROUP & SEMESTRE
+        $semestre = 'S0';
+
         $groupTD = 'NONE';
         $groupTP = 'NONE';
-        
-        if(strlen($parseGroup[1]) > 0) {
-            $groupTD = substr($parseGroup[1], 0, 1);
-            
-            if(strlen($parseGroup[1]) > 1) {
-                $groupTP = substr($parseGroup[1], 1, 2);
+
+        if(substr($group, 0, 2) == 'LP') {
+            $groupTD = 1;
+            $groupTP = substr($group, strlen($group) - 1, 1);
+        }
+        else {
+            $parseGroup = explode('-', $group);
+
+            $semestre = substr($parseGroup[0], 0, 2);
+
+            if(strlen($parseGroup[1]) > 0) {
+                $groupTD = substr($parseGroup[1], 0, 1);
+
+                if(strlen($parseGroup[1]) > 1) {
+                    $groupTP = substr($parseGroup[1], 1, 2);
+                }
             }
         }
 
         $splitDate = explode('-', $dateClass);
 
-        echo addClassTimetable($formation, $typeClass, $module, $room, $teacher, $semestre, $groupTD, $groupTP, $timeClass, ($splitDate[0] . '-' . $splitDate[1] . '-' . $splitDate[2] . ' ' . $splitTimeBegin[0] . ':' . $splitTimeBegin[1] . ':00'));
+        addClassTimetable($formation, $typeClass, $module, $room, $teacher, $semestre, $groupTD, $groupTP, $timeClass, ($splitDate[0] . '-' . $splitDate[1] . '-' . $splitDate[2] . ' ' . $splitTimeBegin[0] . ':' . $splitTimeBegin[1] . ':00'));
+
+        $countClass++;
     }
+
+    return $countClass;
 }
 
 function sendMessage($url, $messageText) {
@@ -261,7 +292,7 @@ function sendMessage($url, $messageText) {
 function saveTimetable($daysToLoad = 0)
 {
     if($daysToLoad == 0) {
-        parseHTML(file_get_html('http://iutsa.unice.fr/gpushow2/?dept=RT&interactive&filiere=Journee'));
+        return parseHTML(file_get_html('http://iutsa.unice.fr/gpushow2/?dept=RT&interactive&filiere=Journee'));
     }
     else {
         $nextDayURL = "http://iutsa.unice.fr/gpushow2/?dept=RT&interactive&date=plus&filiere=RT1,RT1M,RT2,LPRT-RSFS";
@@ -287,7 +318,7 @@ function saveTimetable($daysToLoad = 0)
             }
         }
 
-        parseHTML(str_get_html($html));
+        return parseHTML(str_get_html($html));
     }
 }
 
@@ -328,17 +359,46 @@ function sAlreadyDone($urlId, $timetimeId, $type) {
 function addClassTimetable($formation, $typeClass, $module, $room, $teacher, $semestre, $groupTD, $groupTP, $timeClass, $dateClass) {
     global $bdd;
 
-    $req = $bdd->prepare('SELECT COUNT(*) AS countClass FROM iu3tnoty_timetable WHERE room = ? AND semestre = ? AND groupTD = ? AND groupTP = ? AND dateClass = ?');
-    $req->execute(array($room, $semestre, $groupTD, $groupTP, $dateClass));
+    $text = '<br>';
 
-    if($req->fetch()['countClass'] < 1) {
+    $req = $bdd->prepare('SELECT COUNT(*) AS countClass, room AS lastRoom, teacher AS lastTeacher FROM iu3tnoty_timetable WHERE semestre = ? AND groupTD = ? AND groupTP = ? AND dateClass = ?');
+    $req->execute(array($semestre, $groupTD, $groupTP, $dateClass));
+
+    $returnExist = $req->fetch();
+
+    $text .= $returnExist['countClass'] . ' - ' . $dateClass . ' - ' . $groupTD . ' - ' . $groupTP . ' - ' . $room . ' - ' . $returnExist['lastRoom'] . ' - ' . $teacher . ' - ' . $returnExist['lastTeacher'] . ' - ';
+
+    if($returnExist['countClass'] > 0 && ($room != $returnExist['lastRoom'] || $teacher != $returnExist['lastTeacher'])) {
+
+        $text .= 'add to bdd but duplicate';
+
         $req = $bdd->prepare('INSERT INTO iu3tnoty_timetable(formation, typeClass, moduleClass, room, teacher, semestre, groupTD, groupTP, timeClass, dateClass) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
 
-        return $req->execute(array($formation, $typeClass, $module, $room, $teacher, $semestre, $groupTD, $groupTP, $timeClass, $dateClass));
+        $req->execute(array($formation, $typeClass, $module, $room, $teacher, $semestre, $groupTD, $groupTP, $timeClass, $dateClass));
+
+        addProblemTimetable($bdd->lastInsertId(), "DUPLICATE");
+    }
+    else if($returnExist['countClass'] <= 0) {
+
+        $text .= 'add to bdd';
+
+        $req = $bdd->prepare('INSERT INTO iu3tnoty_timetable(formation, typeClass, moduleClass, room, teacher, semestre, groupTD, groupTP, timeClass, dateClass) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+
+        $req->execute(array($formation, $typeClass, $module, $room, $teacher, $semestre, $groupTD, $groupTP, $timeClass, $dateClass));
     }
     else {
-        return false;
+        $text .= 'nothing to add';
     }
+
+    //echo $text;
+}
+
+function addProblemTimetable($timetableId, $typeProblem) {
+    global $bdd;
+
+    $req = $bdd->prepare('INSERT INTO iu3tnoty_problem(timetableId, typeProblem) VALUES (?, ?)');
+
+    return $req->execute(array($timetableId, $typeProblem));
 }
 
 function gTimetable($moreDay) {
