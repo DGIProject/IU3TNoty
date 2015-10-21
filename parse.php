@@ -239,8 +239,11 @@ function parseHTML($html) {
         //INFORMATIONS
         $child = $div->first_child();
 
-        $teacher = '()';
         $teacher = $child->find('i')[0]->plaintext;
+
+        if(is_null($teacher)) {
+            $teacher = '(Aucun professeur)';
+        }
 
         $module = $child->find('b')[0]->plaintext;
         $room = $child->find('b')[1]->plaintext;
@@ -392,7 +395,7 @@ function addClassTimetable($formation, $typeClass, $module, $room, $teacher, $se
         $text .= 'nothing to add';
     }
 
-    echo $text;
+    //echo $text;
 }
 
 function addProblemTimetable($timetableId, $typeProblem) {
