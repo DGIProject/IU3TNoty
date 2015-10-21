@@ -115,7 +115,7 @@ foreach ($classesToday as $class) {
     $remainingTime = ($remainingTime > 0) ? $remainingTime : 'DONE';
 
     if($remainingTime != 'DONE') {
-        $message =  'Prochain ' . str_replace("\r\n", "", $class['typeClass']) . ' de ' . $class['timeClass'] . ' dans ' . ceil($remainingTime / 60) . 'min en ' . $class['room'] . ' avec M./Mme. ' . $class['teacher'] . ', module enseigné sera ' . str_replace(' ', '', $class['moduleClass']) . '.';
+        $message =  (isClassProblem($class['id'], 'DUPLICATE') ? 'DUPLICATION - ' : '') . 'Vous avez ' . $class['timeClass'] . ' de ' . str_replace("\r\n", "", $class['typeClass']) . ' en ' . $class['room'] . ' avec M./Mme. ' . $class['teacher'] . ' .  dans ' . ceil($remainingTime / 60) . 'min, le module enseigné sera ' . str_replace(' ', '', $class['moduleClass']) . '.';
 
         echo '<li>' . $remainingTime . $separator . $class['semestre'] . $separator . $class['groupTD'] . $separator . $class['groupTP'] . $separator . $message;
 
@@ -238,8 +238,10 @@ function parseHTML($html) {
 
         //INFORMATIONS
         $child = $div->first_child();
-        
+
+        $teacher = '()';
         $teacher = $child->find('i')[0]->plaintext;
+
         $module = $child->find('b')[0]->plaintext;
         $room = $child->find('b')[1]->plaintext;
         
@@ -368,7 +370,7 @@ function addClassTimetable($formation, $typeClass, $module, $room, $teacher, $se
 
     $text .= $returnExist['countClass'] . ' - ' . $dateClass . ' - ' . $groupTD . ' - ' . $groupTP . ' - ' . $room . ' - ' . $returnExist['lastRoom'] . ' - ' . $teacher . ' - ' . $returnExist['lastTeacher'] . ' - ';
 
-    if($returnExist['countClass'] > 0 && ($room != $returnExist['lastRoom'] || $teacher != $returnExist['lastTeacher'])) {
+    if($returnExist['countClass'] > 0 && $returnExist['countClass'] < 2 && ($room != $returnExist['lastRoom'] || $teacher != $returnExist['lastTeacher'])) {
 
         $text .= 'add to bdd but duplicate';
 
@@ -390,13 +392,13 @@ function addClassTimetable($formation, $typeClass, $module, $room, $teacher, $se
         $text .= 'nothing to add';
     }
 
-    //echo $text;
+    echo $text;
 }
 
 function addProblemTimetable($timetableId, $typeProblem) {
     global $bdd;
 
-    $req = $bdd->prepare('INSERT INTO iu3tnoty_problem(timetableId, typeProblem) VALUES (?, ?)');
+    $req = $bdd->prepare('INSERT INTO iu3tnoty_problem(classId, typeProblem) VALUES (?, ?)');
 
     return $req->execute(array($timetableId, $typeProblem));
 }
@@ -414,6 +416,15 @@ function gTimetable($moreDay) {
     ));
 
     return $req->fetchAll();
+}
+
+function isClassProblem($classId, $typeProblem) {
+    global $bdd;
+
+    $req = $bdd->prepare('SELECT COUNT(*) AS countProblem FROM iu3tnoty_problem WHERE classId = ? AND typeProblem = ?');
+    $req->execute(array($classId, $typeProblem));
+
+    return $req->fetch()['countProblem'] > 0;
 }
 
 function gTimeLeftBeginClass($moreDay, $url) {
