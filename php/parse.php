@@ -318,7 +318,8 @@ function saveTimetable($daysToLoad = 0)
             curl_close($ch);
 
             if(!$html){
-                echo 'Faild to get the Day i+'. $i;
+                echo 'Failed to get the Day '. $i;
+                echo $html;
                 exit();
             }
         }
